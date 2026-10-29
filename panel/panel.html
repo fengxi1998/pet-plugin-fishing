@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>文字钓鱼</title>
+<style>
+  :root {
+    --bg: #f4f9fb;
+    --surface: #ffffff;
+    --surface-2: #eaf1f5;
+    --line: #d8e2e8;
+    --ink: #22303a;
+    --ink-muted: #5f7280;
+    --ink-faint: #8fa0ac;
+    --accent: #2f7fa6;
+    --accent-hover: #276e91;
+    --accent-soft: #e3f1f7;
+    --success: #2f7a55;
+    --success-soft: #e4f2ea;
+    --danger: #a8503f;
+    --danger-soft: #f7e9e5;
+    --warning: #9a6b28;
+    --warning-soft: #f6efdf;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.55;
+    overflow: hidden;
+  }
+
+  body { display: flex; flex-direction: column; }
+
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+
+  .icon { width: 16px; height: 16px; flex: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .icon-lg { width: 20px; height: 20px; }
+
+  /* ---- 标题栏 ---- */
+  .titlebar {
+    height: 46px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 10px 0 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
+  }
+  .titlebar .mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .titlebar .who { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+  .titlebar .who b { font-size: 13px; font-weight: 600; }
+  .titlebar .who span { font-size: 11px; color: var(--ink-faint); }
+  .titlebar .spacer { flex: 1; }
+  .coin-chip {
+    -webkit-app-region: no-drag;
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 24px; padding: 0 10px; border-radius: 12px;
+    background: var(--warning-soft); color: var(--warning);
+    font-size: 12px; font-weight: 600;
+  }
+  .icon-btn {
+    -webkit-app-region: no-drag;
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center; color: var(--ink-muted);
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+  /* ---- 页签 ---- */
+  .filters { display: flex; gap: 2px; padding: 8px 12px 0; background: var(--surface); border-bottom: 1px solid var(--line); }
+  .filter {
+    padding: 7px 13px; border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    color: var(--ink-muted); font-size: 13px; border-bottom: 2px solid transparent;
+  }
+  .filter:hover { color: var(--ink); background: var(--surface-2); }
+  .filter.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  .filter .count {
+    min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px;
+    background: var(--surface-2); color: var(--ink-muted); font-size: 11px; line-height: 17px; text-align: center;
+  }
+  .filter.active .count { background: var(--accent-soft); color: var(--accent); }
+
+  /* ---- 内容区 ---- */
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: #c9d6de; border-radius: 4px; border: 2px solid var(--bg); }
+
+  /* ---- 水面状态卡 ---- */
+  .pond {
+    background: linear-gradient(180deg, #e3f1f7 0%, #d2e7f0 100%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 14px 14px;
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .pond .fish-emoji { font-size: 34px; line-height: 1.2; }
+  .pond .status { font-size: 13.5px; font-weight: 600; margin-top: 6px; }
+  .pond .status.biting { color: var(--danger); }
+  .pond .status.waiting { color: var(--accent); }
+  .pond .sub { font-size: 11.5px; color: var(--ink-muted); margin-top: 2px; }
+  .pond .actions { margin-top: 12px; display: flex; justify-content: center; gap: 8px; }
+  .buffs {
+    display: flex; flex-wrap: wrap; gap: 5px; justify-content: center;
+    margin-top: 10px;
+  }
+  .buffs:empty { display: none; }
+  .buff-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 9px; border-radius: 11px;
+    background: var(--success-soft); color: var(--success);
+    font-size: 11px; font-weight: 600;
+  }
+  .env {
+    display: flex; flex-wrap: wrap; gap: 5px; justify-content: center;
+    margin-top: 8px;
+  }
+  .env:empty { display: none; }
+  .env-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    height: 22px; padding: 0 9px; border-radius: 11px;
+    background: var(--surface); border: 1px solid var(--line);
+    color: var(--ink-muted); font-size: 11px; font-weight: 600;
+  }
+  .env-chip .up { color: var(--warning); }
+
+  .btn {
+    height: 34px; padding: 0 18px; border-radius: 17px;
+    background: var(--accent); color: #fff;
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+  }
+  .btn:hover { background: var(--accent-hover); }
+  .btn.ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); font-weight: 400; }
+  .btn.ghost:hover { background: var(--surface-2); }
+  .btn.hot { background: var(--danger); }
+  .btn.hot:hover { background: #93422f; }
+  .btn:disabled { opacity: .45; cursor: default; }
+
+  /* ---- 渔获记录 ---- */
+  .catch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .catch-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .catch-item .cicon { font-size: 20px; flex: none; }
+  .catch-item .cbody { flex: 1; min-width: 0; }
+  .catch-item .cbody b { font-size: 13px; font-weight: 600; }
+  .catch-item .cbody .when { font-size: 11px; color: var(--ink-faint); }
+  .catch-item .cbody .story { font-size: 11.5px; color: var(--ink-muted); margin-top: 1px; }
+  .rarity {
+    flex: none; padding: 1px 8px; border-radius: 9px;
+    font-size: 11px; font-weight: 700; color: #fff;
+  }
+  .rarity.N { background: #8fa0ac; }
+  .rarity.R { background: #2f7fa6; }
+  .rarity.SR { background: #9a6b28; }
+  .rarity.SSR { background: #a8503f; }
+  .cval { flex: none; font-size: 12px; color: var(--warning); font-weight: 600; }
+
+  /* ---- 图鉴 ---- */
+  .dex-progress {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px 14px; margin-bottom: 12px;
+  }
+  .dex-progress .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .dex-progress b { font-size: 15px; }
+  .dex-progress span { font-size: 11.5px; color: var(--ink-muted); }
+  .dex-progress .bar { height: 6px; border-radius: 3px; background: var(--surface-2); margin-top: 9px; overflow: hidden; }
+  .dex-progress .bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+
+  .dex-group-label { font-size: 11.5px; color: var(--ink-faint); margin: 10px 2px 6px; font-weight: 600; }
+  .dex-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+
+  /* ---- 任务 ---- */
+  .quest-item { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 8px; }
+  .quest-item .qbody { flex: 1; min-width: 0; }
+  .quest-item b { font-size: 13px; font-weight: 600; }
+  .quest-item .qbar { height: 5px; border-radius: 3px; background: var(--surface-2); margin-top: 6px; overflow: hidden; }
+  .quest-item .qbar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .quest-item .qreward { flex: none; font-size: 12px; color: var(--warning); font-weight: 600; }
+  .quest-item.done { opacity: 0.65; }
+  .dex-cell {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  }
+  .dex-cell.locked { opacity: .45; }
+  .dex-cell .dicon { font-size: 17px; flex: none; }
+  .dex-cell .dname { flex: 1; min-width: 0; font-size: 12.5px; }
+  .dex-cell .dname small { display: block; color: var(--ink-faint); font-size: 10.5px; }
+  .dex-cell .dcount { font-size: 11.5px; color: var(--ink-muted); font-weight: 600; }
+
+  /* ---- 商店 ---- */
+  .shop-note {
+    font-size: 11.5px; color: var(--ink-faint);
+    background: var(--surface); border: 1px dashed var(--line);
+    border-radius: var(--radius); padding: 9px 12px; margin-bottom: 10px;
+  }
+  .shop-list { display: flex; flex-direction: column; gap: 8px; }
+  .shop-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  }
+  .shop-item .sicon { font-size: 22px; flex: none; }
+  .shop-item .sbody { flex: 1; min-width: 0; }
+  .shop-item .sbody b { font-size: 13px; font-weight: 600; }
+  .shop-item .sbody .fx { font-size: 11.5px; color: var(--success); font-weight: 600; }
+  .shop-item .sbody .dur { font-size: 11px; color: var(--ink-faint); }
+  .shop-item .buy {
+    flex: none; height: 30px; padding: 0 14px; border-radius: 15px;
+    background: var(--warning); color: #fff; font-size: 12px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .shop-item .buy:hover { background: #845a22; }
+  .shop-item .buy:disabled { opacity: .4; cursor: default; }
+
+  .empty { color: var(--ink-faint); text-align: center; padding: 44px 16px; font-size: 12.5px; }
+
+  /* ---- 提示条 ---- */
+  .toast {
+    position: absolute; left: 12px; right: 12px; bottom: 12px;
+    padding: 9px 12px; border-radius: var(--radius-sm);
+    background: var(--ink); color: #fff; font-size: 12px;
+    opacity: 0; transform: translateY(6px);
+    transition: opacity .18s ease, transform .18s ease;
+    pointer-events: none; z-index: 9;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.err { background: var(--danger); }
+</style>
+</head>
+<body>
+
+<header class="titlebar">
+  <div class="mark">
+    <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"/><path d="M12 8c-4 0-7 3.2-7 8"/><path d="M12 8c4 0 7 3.2 7 8"/><circle cx="12" cy="3.5" r="1.5"/></svg>
+  </div>
+  <div class="who">
+    <b>文字钓鱼</b>
+    <span>抛竿 → 立刻咬钩 → 收杆</span>
+  </div>
+  <div class="spacer"></div>
+  <span class="coin-chip">🪙 <span id="coins">0</span></span>
+  <button id="btn-close" class="icon-btn" title="关闭面板">
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+  </button>
+</header>
+
+<nav class="filters">
+  <button class="filter active" data-filter="fish">钓鱼</button>
+  <button class="filter" data-filter="dex">图鉴 <span class="count" id="count-dex">0</span></button>
+  <button class="filter" data-filter="quests">任务 <span class="count" id="count-quests">0</span></button>
+  <button class="filter" data-filter="shop">商店</button>
+</nav>
+
+<div class="scroll">
+  <!-- 钓鱼页 -->
+  <div id="page-fish">
+    <div class="pond">
+      <div class="fish-emoji" id="pond-emoji">🐟</div>
+      <div class="status" id="pond-status">空闲中</div>
+      <div class="sub" id="pond-sub">点「抛竿」立刻咬钩，45 秒内收杆！</div>
+      <div class="buffs" id="pond-buffs"></div>
+      <div class="env" id="pond-env"></div>
+      <div class="actions">
+        <button class="btn" id="btn-main">抛竿</button>
+        <button class="btn ghost" id="btn-giveup" style="display:none">收竿回家</button>
+      </div>
+    </div>
+
+    <ul class="catch-list" id="catch-list"></ul>
+  </div>
+
+  <!-- 图鉴页 -->
+  <div id="page-dex" style="display:none">
+    <div class="dex-progress">
+      <div class="row"><b id="dex-num">0/0</b><span>图鉴收集进度</span></div>
+      <div class="bar"><i id="dex-bar" style="width:0%"></i></div>
+    </div>
+    <div id="dex-body"></div>
+  </div>
+
+  <!-- 任务页 -->
+  <div id="page-quests" style="display:none">
+    <div class="shop-note" id="sign-note"></div>
+    <div class="shop-note">每天 3 个小任务，达标自动发币。完成「到点提醒」里的待办，每条额外 +5 币摸鱼佣金。</div>
+    <div id="quest-body"></div>
+  </div>
+
+  <!-- 商店页 -->
+  <div id="page-shop" style="display:none">
+    <div class="shop-note">道具买完立刻生效：接下来 N 次抛竿按提升后的概率出鱼，增益随抛竿消耗。定价约等于预期收益（回收率 1.0~1.3），长期买卖基本不亏。</div>
+    <div class="shop-list" id="shop-list"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SAVE_KEY = 'save';
+  var CATALOG_KEY = 'catalog';
+  var SHOP_KEY = 'shop';
+  var CHANGED_EVENT = 'fishing:changed';
+  var ACTION_EVENT = 'fishing:action';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var save = null;
+  var catalog = [];          // [{id,name,icon,value,rarity}]
+  var shop = [];             // [{id,name,icon,price,casts,effect}]
+  var filter = 'fish';
+
+  // 咬钩手感提示（与 tool 侧 BITE_FEEL.status 对应，按 session.preRarity 展示）
+  var FEEL_TEXT = {
+    N: '水波正常，可能是小鱼',
+    R: '手感有点分量',
+    SR: '竿尖在抖——大鱼！',
+    SSR: '水面都在震动！！'
+  };
+
+  var toastTimer = null;
+  function toast(message, isError) {
+    var el = $('toast');
+    el.textContent = message;
+    el.className = 'toast show' + (isError ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.className = 'toast'; }, 2600);
+  }
+
+  function load() {
+    return Promise.all([
+      pet.storage.get(SAVE_KEY, null),
+      pet.storage.get(CATALOG_KEY, []),
+      pet.storage.get(SHOP_KEY, [])
+    ]).then(function (all) {
+      save = all[0] && typeof all[0] === 'object' ? all[0] : { coins: 0, session: null, log: [], dex: {}, buffs: [], stats: {} };
+      catalog = Array.isArray(all[1]) ? all[1] : [];
+      shop = Array.isArray(all[2]) ? all[2] : [];
+      render();
+    });
+  }
+
+  function act(payload, okMsg) {
+    pet.events.emit(ACTION_EVENT, payload).catch(function () {});
+    if (okMsg) toast(okMsg);
+    setTimeout(load, 400);   // 乐观刷新；常驻层处理完会广播 changed 再兜底同步
+  }
+
+  function renderBuffs() {
+    var box = $('pond-buffs');
+    box.innerHTML = '';
+    (save.buffs || []).forEach(function (b) {
+      var chip = document.createElement('span');
+      chip.className = 'buff-chip';
+      chip.textContent = (b.icon || '') + (b.name || '') + ' · 剩' + (b.castsLeft || 0) + '竿';
+      box.appendChild(chip);
+    });
+  }
+
+  // 今日行情 + 天气鱼情（v0.5.0）
+  function renderEnv() {
+    var box = $('pond-env');
+    box.innerHTML = '';
+    var m = save.market;
+    if (m && m.fishId) {
+      var mc = document.createElement('span');
+      mc.className = 'env-chip';
+      var mult = document.createElement('b');
+      mult.className = 'up';
+      mult.textContent = ' ×' + m.mult;
+      mc.appendChild(document.createTextNode((m.icon || '🐟') + ' ' + m.name));
+      mc.appendChild(mult);
+      if (m.line) mc.appendChild(document.createTextNode('「' + m.line + '」'));
+      box.appendChild(mc);
+    }
+    var w = save.weather;
+    if (w && w.desc) {
+      var boost = w.boost || {};
+      var keys = ['N', 'R', 'SR', 'SSR'].filter(function (k) { return boost[k]; });
+      var wc = document.createElement('span');
+      wc.className = 'env-chip';
+      wc.textContent = (w.emoji || '') + w.desc + (keys.length
+        ? '　' + keys.map(function (k) { return k + '+' + Math.round(boost[k] * 100) + '%'; }).join(' ')
+        : '　鱼情平稳');
+      box.appendChild(wc);
+    }
+  }
+
+  function render() {
+    if (!save) return;
+    var session = save.session || null;
+    var biting = !!(session && session.stage === 'bite');
+    var waiting = !!(session && session.stage === 'wait');
+
+    $('coins').textContent = String(save.coins || 0);
+
+    // 水面卡
+    var emoji = $('pond-emoji'), status = $('pond-status'), sub = $('pond-sub');
+    var main = $('btn-main'), giveup = $('btn-giveup');
+    if (biting) {
+      var feelText = FEEL_TEXT[(session && session.preRarity) || 'N'] || FEEL_TEXT.N;
+      var isBig = !!(session && (session.preRarity === 'SSR' || session.preRarity === 'SR'));
+      emoji.textContent = isBig ? '🌊！' : '🐟！';
+      status.textContent = session && session.preRarity === 'SSR' ? '巨物咬钩！！速收杆！！' : '咬钩了！！快收杆！';
+      status.className = 'status biting';
+      sub.textContent = feelText + ' · 错过 45 秒窗口鱼就跑了';
+      main.textContent = '收杆！';
+      main.className = 'btn hot';
+      giveup.style.display = 'none';
+    } else if (waiting) {
+      emoji.textContent = '🎣';
+      status.textContent = '等待咬钩中…';
+      status.className = 'status waiting';
+      sub.textContent = '鱼随时可能上钩';
+      main.textContent = '收杆';
+      main.className = 'btn ghost';
+      giveup.style.display = '';
+    } else {
+      emoji.textContent = '🐟';
+      status.textContent = '空闲中';
+      status.className = 'status';
+      sub.textContent = '点「抛竿」立刻咬钩，45 秒内收杆！';
+      main.textContent = '抛竿';
+      main.className = 'btn';
+      giveup.style.display = 'none';
+    }
+    renderBuffs();
+    renderEnv();
+    var list = $('catch-list');
+    list.innerHTML = '';
+    var log = Array.isArray(save.log) ? save.log : [];
+    if (!log.length) {
+      var empty = document.createElement('li');
+      empty.className = 'empty';
+      empty.textContent = '还没有渔获。抛出第一竿吧。';
+      list.appendChild(empty);
+    } else {
+      log.forEach(function (item) {
+        var li = document.createElement('li');
+        li.className = 'catch-item';
+        var icon = document.createElement('div');
+        icon.className = 'cicon';
+        icon.textContent = item.icon || '🐟';
+        var body = document.createElement('div');
+        body.className = 'cbody';
+        var name = document.createElement('b');
+        name.textContent = item.name;
+        var when = document.createElement('div');
+        when.className = 'when';
+        when.textContent = new Date(item.ts || Date.now()).toLocaleString('zh-CN');
+        body.appendChild(name);
+        body.appendChild(when);
+        if (item.story) {
+          var story = document.createElement('div');
+          story.className = 'story';
+          story.textContent = '💬 ' + item.story;
+          body.appendChild(story);
+        }
+        var tag = document.createElement('span');
+        tag.className = 'rarity ' + (item.rarity || 'N');
+        tag.textContent = item.rarity || 'N';
+        var val = document.createElement('span');
+        val.className = 'cval';
+        val.textContent = '+' + (item.value || 0);
+        li.appendChild(icon);
+        li.appendChild(body);
+        li.appendChild(tag);
+        li.appendChild(val);
+        list.appendChild(li);
+      });
+    }
+
+    renderDex();
+    renderQuests();
+    renderShop();
+  }
+
+  function renderQuests() {
+    var quests = (save && save.quests && save.quests.list) || [];
+    var doneCount = quests.filter(function (q) { return q.done; }).length;
+    $('count-quests').textContent = quests.length ? doneCount + '/' + quests.length : '0';
+    // 签到状态（每天首次触达自动签上，这里只展示）
+    var sign = (save && save.sign) || { last: '', streak: 0 };
+    var d = new Date();
+    var todayKey = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    $('sign-note').textContent = sign.last === todayKey
+      ? '✅ 今日已签到，连续 ' + (sign.streak || 1) + ' 天（自动签到，连续越久奖越多，7 天封顶）'
+      : '今天还没签到——抛一竿或看一眼状态就会自动签上。';
+    var body = $('quest-body');
+    body.innerHTML = '';
+    if (!quests.length) {
+      var tip = document.createElement('div');
+      tip.className = 'empty';
+      tip.textContent = '今日任务还没生成，抛一竿就有了。';
+      body.appendChild(tip);
+      return;
+    }
+    quests.forEach(function (q) {
+      var row = document.createElement('div');
+      row.className = 'quest-item' + (q.done ? ' done' : '');
+      var qbody = document.createElement('div');
+      qbody.className = 'qbody';
+      var name = document.createElement('b');
+      name.textContent = (q.done ? '✅ ' : '') + q.desc;
+      var bar = document.createElement('div');
+      bar.className = 'qbar';
+      var fill = document.createElement('i');
+      fill.style.width = Math.round(Math.min(1, (q.progress || 0) / q.target) * 100) + '%';
+      bar.appendChild(fill);
+      qbody.appendChild(name);
+      qbody.appendChild(bar);
+      var reward = document.createElement('span');
+      reward.className = 'qreward';
+      reward.textContent = '+' + q.reward + '币';
+      row.appendChild(qbody);
+      row.appendChild(reward);
+      body.appendChild(row);
+    });
+  }
+
+  function renderDex() {
+    var dex = save && save.dex || {};
+    var got = catalog.filter(function (f) { return dex[f.id]; }).length;
+    $('count-dex').textContent = String(got);
+    $('dex-num').textContent = got + '/' + catalog.length;
+    $('dex-bar').style.width = (catalog.length ? Math.round(got / catalog.length * 100) : 0) + '%';
+
+    var dexBody = $('dex-body');
+    dexBody.innerHTML = '';
+    if (!catalog.length) {
+      var tip = document.createElement('div');
+      tip.className = 'empty';
+      tip.textContent = '花名册还没就绪，重启宿主后重试。';
+      dexBody.appendChild(tip);
+      return;
+    }
+    var groupLabel = { N: '常见', R: '稀有', SR: '史诗', SSR: '传说' };
+    ['N', 'R', 'SR', 'SSR'].forEach(function (rarityKey) {
+      var fishes = catalog.filter(function (f) { return f.rarity === rarityKey; });
+      if (!fishes.length) return;
+
+      var label = document.createElement('div');
+      label.className = 'dex-group-label';
+      label.textContent = rarityKey + ' · ' + groupLabel[rarityKey];
+      dexBody.appendChild(label);
+
+      var grid = document.createElement('div');
+      grid.className = 'dex-grid';
+      fishes.forEach(function (f) {
+        var count = dex[f.id] || 0;
+        var cell = document.createElement('div');
+        cell.className = 'dex-cell' + (count ? '' : ' locked');
+        var dicon = document.createElement('div');
+        dicon.className = 'dicon';
+        dicon.textContent = count ? f.icon : '❓';
+        var dname = document.createElement('div');
+        dname.className = 'dname';
+        dname.textContent = count ? f.name : '？？？';
+        var small = document.createElement('small');
+        small.textContent = f.value + ' 币';
+        dname.appendChild(small);
+        var dcount = document.createElement('div');
+        dcount.className = 'dcount';
+        dcount.textContent = count ? '×' + count : '';
+        cell.appendChild(dicon);
+        cell.appendChild(dname);
+        cell.appendChild(dcount);
+        grid.appendChild(cell);
+      });
+      dexBody.appendChild(grid);
+    });
+  }
+
+  function renderShop() {
+    var listEl = $('shop-list');
+    listEl.innerHTML = '';
+    if (!shop.length) {
+      var tip = document.createElement('div');
+      tip.className = 'empty';
+      tip.textContent = '商店还没上架，重启宿主后重试。';
+      listEl.appendChild(tip);
+      return;
+    }
+    var coins = (save && save.coins) || 0;
+    shop.forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'shop-item';
+      var icon = document.createElement('div');
+      icon.className = 'sicon';
+      icon.textContent = item.icon || '🎁';
+      var body = document.createElement('div');
+      body.className = 'sbody';
+      var name = document.createElement('b');
+      name.textContent = item.name;
+      var fx = document.createElement('div');
+      fx.className = 'fx';
+      fx.textContent = item.effect || '';
+      var dur = document.createElement('div');
+      dur.className = 'dur';
+      dur.textContent = '接下来 ' + item.casts + ' 竿有效';
+      body.appendChild(name);
+      body.appendChild(fx);
+      body.appendChild(dur);
+      var buy = document.createElement('button');
+      buy.className = 'buy';
+      buy.textContent = '🪙 ' + item.price;
+      buy.disabled = coins < item.price;
+      buy.title = coins < item.price ? '金币不足' : '购买并立刻生效';
+      buy.addEventListener('click', function () {
+        act({ action: 'buy', itemId: item.id }, '已购买：' + item.name);
+      });
+      row.appendChild(icon);
+      row.appendChild(body);
+      row.appendChild(buy);
+      listEl.appendChild(row);
+    });
+  }
+
+  // ---- 动作 ----
+  $('btn-main').addEventListener('click', function () {
+    if (!save) return;
+    if (save.session) act({ action: 'reel' }, '收杆！'); else act({ action: 'cast' }, '抛竿！');
+  });
+  $('btn-giveup').addEventListener('click', function () { act({ action: 'reel' }); });
+  $('btn-close').addEventListener('click', function () { pet.ui.closePanel(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.filter'), function (tab) {
+    tab.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.filter'), function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      filter = tab.dataset.filter;
+      $('page-fish').style.display = filter === 'fish' ? '' : 'none';
+      $('page-dex').style.display = filter === 'dex' ? '' : 'none';
+      $('page-quests').style.display = filter === 'quests' ? '' : 'none';
+      $('page-shop').style.display = filter === 'shop' ? '' : 'none';
+    });
+  });
+
+  // ---- 常驻层变更同步 ----
+  if (pet.events && pet.events.on) {
+    pet.events.on(CHANGED_EVENT, function () { load().catch(function () {}); });
+  }
+
+  load().catch(function (err) {
+    toast('初始化失败：' + String((err && err.message) || err), true);
+  });
+})();
+</script>
+</body>
+</html>
