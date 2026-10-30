@@ -156,7 +156,9 @@ const FISH_POOL = {
 const BASE_WEIGHTS = { N: 0.60, R: 0.30, SR: 0.09, SSR: 0.01 };
 const RARITY_ORDER = ['N', 'R', 'SR', 'SSR'];
 
-// 商店道具：买完立即生效，接下来 casts 次抛竿有效。boost 加在对应档位上，增量全部从 N 档扣除。
+// 商店道具：买完立即生效，接下来 casts 次抛竿有效。boost 加在对应档位上，同类/跨类可无限购买叠加；
+// 饱和规则见 effectiveWeights：单档抽中率封顶（R 60% / SR 45% / SSR 30%），
+// 总和超出 1 的部分按 N → R → SR 顺序回收，SSR 机会在任何购买组合下都不会低于基础 1%。
 // 定价依据期望回收率（道具全周期预期收益 / 售价，按 100 鱼均值估算）：
 //   幸运饵   0.15×(R13.4−N3.2)×5竿 ≈ 7.7 币 / 售 6   → 1.28
 //   诱食剂   0.12×(SR72−N3.2)×3竿   ≈ 24.8 币 / 售 20 → 1.24
@@ -169,20 +171,38 @@ const SHOP_ITEMS = [
   { id: 'bait_ult', name: '龙王秘药',   icon: '🌟', price: 180,  casts: 1, boost: { SSR: 0.25 } }
 ];
 
-/** 按当前生效增益计算实际概率（增量全部从 N 档扣）。 */
+// 各档位抽中率硬顶（叠加上限）：道具/天气可无限叠加，但单档封顶，防止「买得越多反而越亏」。
+// 顶棚只拦极端叠加，不干预常规购买（如龙王秘药+黄金鱼饵 → SSR 33% 不受影响）。
+// 约束：SR 顶 + SSR 顶 ≤ 1 且 N+R ≥ 1.20，保证下面饱和回收总能把分布总和收回恰好 1。
+const WEIGHT_CAPS = { R: 0.60, SR: 0.50, SSR: 0.50 };
+
+/** 按当前生效增益计算实际概率（v0.5.1 饱和规则）：
+ *  1) 增益逐项累加到各档位；
+ *  2) 单档超过硬顶的截到顶（WEIGHT_CAPS）；
+ *  3) 总和若超过 1，超出部分按 N → R → SR 顺序回收，SSR 永不回收——
+ *     抽签分布总和恒为 1，且任何购买组合都不会让 SSR 机会低于基础 1%。
+ *  常规用量（增益总量 ≤ N 份额）下与旧版「增量从 N 扣」结果完全一致。 */
 function effectiveWeights(buffs) {
   const w = Object.assign({}, BASE_WEIGHTS);
-  let extra = 0;
   for (const buff of Array.isArray(buffs) ? buffs : []) {
     const boost = buff && buff.boost;
     if (!boost) continue;
     for (const key of Object.keys(boost)) {
       if (!(key in w)) continue;
       w[key] += boost[key];
-      if (key !== 'N') extra += boost[key];
     }
   }
-  w.N = Math.max(0, w.N - extra);
+  for (const key of RARITY_ORDER) {
+    const cap = WEIGHT_CAPS[key];
+    if (cap != null && w[key] > cap) w[key] = cap;
+  }
+  let excess = w.N + w.R + w.SR + w.SSR - 1;
+  for (const key of ['N', 'R', 'SR']) {
+    if (excess <= 0) break;
+    const take = Math.min(w[key], excess);
+    w[key] -= take;
+    excess -= take;
+  }
   return w;
 }
 
@@ -246,7 +266,7 @@ function signReward(streak) { return 5 + Math.min(Math.max(1, streak) - 1, 6); }
 const MARKET_MULTS = { N: 3, R: 2, SR: 1.5, SSR: 1.5 };
 const MARKET_RARITY_WEIGHTS = { N: 0.5, R: 0.35, SR: 0.1, SSR: 0.05 };
 
-// 天气鱼情：open-meteo 免 key，weather_code → 鱼情增益（增量从 N 扣，与道具同机制）。
+// 天气鱼情：open-meteo 免 key，weather_code → 鱼情增益（与道具同规则叠加，见 effectiveWeights 饱和规则）。
 // 缓存 3 小时；请求失败 30 分钟后再试；失败/无网完全不影响玩法。
 const WEATHER_TTL_MS = 3 * 60 * 60 * 1000;
 const WEATHER_RETRY_MS = 30 * 60 * 1000;
@@ -366,7 +386,8 @@ async function buyItem(pet, itemId) {
   await bumpQuest(pet, save, 'buys', 1);
   save.buffs.push({ id: item.id, name: item.name, icon: item.icon, castsLeft: item.casts, boost: item.boost });
   await writeSave(pet, save);
-  return { ok: true, item: { id: item.id, name: item.name }, coins: save.coins, castsLeft: item.casts };
+  return { ok: true, item: { id: item.id, name: item.name }, coins: save.coins, castsLeft: item.casts,
+    weights: effectiveWeights(save.buffs) };   // 购买后的真实概率（含叠加饱和），供 Agent 如实告知玩家
 }
 
 /** 抛竿时消耗增益：返回本次生效概率（extraBuffs 只参与计算、不耗耐久，用于天气鱼情），
@@ -727,24 +748,36 @@ function describeBuffs(save) {
 }
 
 function registerTools(pet) {
+  // schema 必须是 { description, parameters } 形状：宿主 Agent 适配层（buildAgentTools）
+  // 读取的是 schema.parameters 来构建输入校验，写扁平了（type/properties 直接放 schema 下）
+  // 会被当成「无参数工具」，LLM 传的实参在参数转换时被整体剥掉（v0.5.0 的 P1 bug）。
   pet.tools.register({
     name: 'fishing_cast',
     promptHint: '钓鱼游戏：抛竿。抛出后立刻咬钩，45 秒内收杆即可中鱼。',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      description: '开始钓鱼：抛出鱼竿，抛出后立刻咬钩，45 秒内收杆（fishing_reel）即可中鱼。',
+      parameters: { type: 'object', properties: {} }
+    },
     async handler() { return castRod(pet); }
   });
 
   pet.tools.register({
     name: 'fishing_reel',
     promptHint: '钓鱼游戏：收杆。咬钩后收杆钓上鱼，按稀有度结算金币。',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      description: '收杆：咬钩窗口内收杆钓上鱼，按稀有度结算金币。',
+      parameters: { type: 'object', properties: {} }
+    },
     async handler() { return reelRod(pet); }
   });
 
   pet.tools.register({
     name: 'fishing_status',
     promptHint: '钓鱼游戏：查看当前状态（是否咬钩、剩余时间、金币、生效增益、今日任务进度、签到/行情/天气）。',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      description: '查询钓鱼状态：是否咬钩及剩余时间、金币、生效增益、今日任务进度、签到、鱼市行情、天气鱼情。',
+      parameters: { type: 'object', properties: {} }
+    },
     async handler() {
       const save = await readSave(pet);
       await ensureDaily(pet, save);
@@ -771,7 +804,10 @@ function registerTools(pet) {
   pet.tools.register({
     name: 'fishing_fishdex',
     promptHint: '钓鱼游戏：查看图鉴（100 种鱼的捕获次数）、生涯统计与收集里程碑进度。',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      description: '查询钓鱼图鉴：100 种鱼的捕获次数、生涯统计与收集里程碑进度。',
+      parameters: { type: 'object', properties: {} }
+    },
     async handler() {
       const save = await readSave(pet);
       const flat = allFish();
@@ -791,19 +827,26 @@ function registerTools(pet) {
   pet.tools.register({
     name: 'fishing_giveup',
     promptHint: '钓鱼游戏：收竿回家（结束当前钓鱼会话，不结算）。',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      description: '收竿回家：结束当前钓鱼会话，本竿不结算。',
+      parameters: { type: 'object', properties: {} }
+    },
     async handler() { return giveUp(pet); }
   });
 
   pet.tools.register({
     name: 'fishing_shop_list',
     promptHint: '钓鱼游戏：查看道具商城（价格、增益效果、生效竿数）。',
-    schema: { type: 'object', properties: {} },
+    schema: {
+      description: '查看钓鱼道具商城：各道具的价格、增益效果、生效竿数与叠加规则。',
+      parameters: { type: 'object', properties: {} }
+    },
     async handler() {
       const save = await readSave(pet);
       return {
         ok: true,
         coins: save.coins,
+        stackRule: '同类/跨类道具可叠加，但单档抽中率有上限：R ≤ 60%、SR ≤ 50%、SSR ≤ 50%；叠加超出部分不再生效，SSR 机会不会因购买而降低。',
         items: SHOP_ITEMS.map((i) => ({
           id: i.id, name: i.name, icon: i.icon, price: i.price, casts: i.casts,
           effect: RARITY_ORDER.filter((k) => i.boost[k]).map((k) => k + '+' + Math.round(i.boost[k] * 100) + '%').join(' ')
@@ -816,9 +859,12 @@ function registerTools(pet) {
     name: 'fishing_shop_buy',
     promptHint: '钓鱼游戏：购买道具增益（按稀有度提升中鱼概率，接下来 N 竿有效）。',
     schema: {
-      type: 'object',
-      properties: { itemId: { type: 'string', description: '道具 id，如 bait_ult' } },
-      required: ['itemId']
+      description: '购买钓鱼道具增益：按稀有度提升中鱼概率，接下来 N 竿有效。先用 fishing_shop_list 查 itemId。',
+      parameters: {
+        type: 'object',
+        properties: { itemId: { type: 'string', description: '道具 id，如 bait_ult' } },
+        required: ['itemId']
+      }
     },
     async handler(args) { return buyItem(pet, String(args.itemId || '')); }
   });
@@ -891,5 +937,7 @@ exports.deactivate = async function deactivate() {
 
 // 供测试脚本直接校验概率数学
 exports._effectiveWeights = effectiveWeights;
+exports._rollRarity = rollRarity;
 exports._BASE_WEIGHTS = BASE_WEIGHTS;
+exports._WEIGHT_CAPS = WEIGHT_CAPS;
 exports._BITE_FEEL = BITE_FEEL;

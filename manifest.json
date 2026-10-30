@@ -2,7 +2,7 @@
   "id": "fishing",
   "name": "文字钓鱼",
   "description": "文字类钓鱼小游戏：抛竿即咬钩、咬钩手感、100 种鱼图鉴、道具商城、每日任务与签到、鱼市行情、真实天气影响鱼情、稀有鱼 AI 台词，完成待办还有摸鱼佣金。",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "apiVersion": 1,
   "author": "github:fengxi1998",
   "homepage": "https://github.com/fengxi1998/pet-plugin-fishing",
